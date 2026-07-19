@@ -2,7 +2,7 @@
 //  Notice how we no longer need a separate update command: `Get` now returns a handle to the ticket
 //  which allows the caller to both modify and read the ticket.
 
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
 use crate::data::{Ticket, TicketDraft};
@@ -24,10 +24,7 @@ impl TicketStoreClient {
                 draft,
                 response_channel: response_sender,
             })
-            .map_err(|err| match err {
-                TrySendError => OverloadedError,
-                _ => OverloadedError,
-            })?;
+            .map_err(|_| OverloadedError)?;
         Ok(response_receiver.recv().unwrap())
     }
 

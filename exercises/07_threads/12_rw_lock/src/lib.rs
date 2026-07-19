@@ -1,7 +1,7 @@
 // TODO: Replace `Mutex` with `RwLock` in the `TicketStore` struct and
 //  all other relevant places to allow multiple readers to access the ticket store concurrently.
 
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 
 use crate::data::{Ticket, TicketDraft};

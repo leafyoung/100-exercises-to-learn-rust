@@ -32,14 +32,14 @@ pub fn server(receiver: Receiver<Command>) {
                 response_sender,
             }) => {
                 let id = store.add_ticket(draft);
-                response_sender.send(id);
+                let _ = response_sender.send(id);
             }
             Ok(Command::Get {
                 id,
                 response_sender,
             }) => {
                 let ticket = store.get(id);
-                response_sender.send(ticket.cloned());
+                let _ = response_sender.send(ticket.cloned());
             }
             Err(_) => {
                 // There are no more senders, so we can safely break

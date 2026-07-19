@@ -12,7 +12,7 @@ where
     // `T` cannot be cloned. Share it via `Arc`.
     T: Display + Send + Sync + 'static,
 {
-    let reply: Arc<[u8]> = Arc::from(format!("{}", reply).into_bytes());
+    let reply: Arc<[u8]> = Arc::from(reply.to_string().into_bytes());
     let handle1 = echo(first, Arc::clone(&reply));
     let handle2 = echo(second, reply);
     tokio::join!(handle1, handle2);

@@ -115,7 +115,7 @@ async fn get_ticket(
                     id: ticket.id.0,
                     title: ticket.title.clone().try_into().unwrap(),
                     description: ticket.description.clone().try_into().unwrap(),
-                    status: format!("{:?}", ticket.status),
+                    status: ticket.status.to_string(),
                 }),
             })
         }
@@ -145,7 +145,7 @@ async fn patch_ticket(
                     id: ticket.id.0,
                     title: ticket.title.clone().try_into().unwrap(),
                     description: ticket.description.clone().try_into().unwrap(),
-                    status: format!("{:?}", ticket.status),
+                    status: ticket.status.to_string(),
                 }),
             })
         }

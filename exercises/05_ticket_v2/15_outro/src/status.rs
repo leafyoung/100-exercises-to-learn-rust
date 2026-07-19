@@ -23,7 +23,7 @@ impl TryFrom<&str> for Status {
             "INPROGRESS" => Ok(Status::InProgress),
             "DONE" => Ok(Status::Done),
             _ => Err(ParseStatusError {
-                invalid_status: "Empty title".into(),
+                invalid_status: value.into(),
             }),
         }
     }

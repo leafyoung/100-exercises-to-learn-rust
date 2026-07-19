@@ -5,6 +5,7 @@
 use std::thread;
 
 pub fn sum(slice: &'static [i32]) -> i32 {
+    // Alternatively, we use manual
     // let mut slice_left = &slice[..(slice.len() / 2)];
     // let mut slice_right = &slice[(slice.len() / 2)..];
     let (slice_left, slice_right) = slice.split_at(slice.len() / 2);

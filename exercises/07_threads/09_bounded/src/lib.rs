@@ -3,8 +3,6 @@ use crate::data::{Ticket, TicketDraft};
 use crate::store::{TicketId, TicketStore};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
-use std::error::Error;
-
 pub mod data;
 pub mod store;
 
@@ -15,7 +13,7 @@ pub struct TicketStoreClient {
 
 impl TicketStoreClient {
     pub fn insert(&self, draft: TicketDraft) -> Result<TicketId, OverloadedError> {
-        let (sender, receiver) = sync_channel(10);
+        let (sender, receiver) = sync_channel(1);
         self.sender
             .send(Command::Insert {
                 draft,
@@ -25,13 +23,15 @@ impl TicketStoreClient {
         Ok(receiver.recv().map_err(|_| OverloadedError)?)
     }
 
-    pub fn get(&self, id: TicketId) -> Result<Option<Ticket>, Box<dyn Error>> {
-        let (sender, receiver) = sync_channel(10);
-        self.sender.send(Command::Get {
-            id,
-            response_channel: sender,
-        })?;
-        Ok(receiver.recv()?)
+    pub fn get(&self, id: TicketId) -> Result<Option<Ticket>, OverloadedError> {
+        let (sender, receiver) = sync_channel(1);
+        self.sender
+            .send(Command::Get {
+                id,
+                response_channel: sender,
+            })
+            .map_err(|_| OverloadedError)?;
+        Ok(receiver.recv().map_err(|_| OverloadedError)?)
     }
 }
 
