@@ -11,11 +11,22 @@
 // We expect `fibonacci(0)` to return `0`, `fibonacci(1)` to return `1`,
 // `fibonacci(2)` to return `1`, and so on.
 pub fn fibonacci(n: u32) -> u32 {
-    // TODO: implement the `fibonacci` function
-    //
-    // Hint: use a `Vec` to memoize the results you have already calculated
-    // so that you don't have to recalculate them several times.
-    todo!()
+    // index in usize: `n as usize + 1` can't overflow usize on >=32-bit targets,
+    // avoiding the u32 overflow that `(n + 1) as usize` hits at n == u32::MAX.
+    let mut seq: Vec<u32> = Vec::with_capacity(n as usize + 1);
+    seq.push(0);
+    if n == 0 {
+        return 0;
+    }
+    seq.push(1);
+
+    for i in 2..=n {
+        // saturating_add: fib overflows u32 at n=48; saturate instead of
+        // panicking (debug) or silently wrapping (release).
+        let next = seq[(i - 1) as usize].saturating_add(seq[(i - 2) as usize]);
+        seq.push(next);
+    }
+    seq[n as usize]
 }
 
 #[cfg(test)]

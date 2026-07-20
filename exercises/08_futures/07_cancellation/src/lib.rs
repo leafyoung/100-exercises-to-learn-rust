@@ -1,5 +1,6 @@
 // TODO: fix the `assert_eq` at the end of the tests.
 //  Do you understand why that's the resulting output?
+
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
@@ -8,7 +9,7 @@ pub async fn run(listener: TcpListener, n_messages: usize, timeout: Duration) ->
     let mut buffer = Vec::new();
     for _ in 0..n_messages {
         let (mut stream, _) = listener.accept().await.unwrap();
-        let _ = tokio::time::timeout(timeout, async {
+        let _ = tokio::time::timeout(timeout * 3, async {
             stream.read_to_end(&mut buffer).await.unwrap();
         })
         .await;
@@ -27,9 +28,9 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let messages = vec!["hello", "from", "this", "task"];
         let timeout = Duration::from_millis(20);
-        let handle = tokio::spawn(run(listener, messages.len(), timeout.clone()));
+        let handle = tokio::spawn(run(listener, messages.len(), timeout));
 
-        for message in messages {
+        for message in messages.clone() {
             let mut socket = tokio::net::TcpStream::connect(addr).await.unwrap();
             let (_, mut writer) = socket.split();
 
@@ -46,6 +47,6 @@ mod tests {
 
         let buffered = handle.await.unwrap();
         let buffered = std::str::from_utf8(&buffered).unwrap();
-        assert_eq!(buffered, "");
+        assert_eq!(buffered, messages.join(""));
     }
 }

@@ -27,6 +27,12 @@ impl TryFrom<&str> for TicketDescription {
     }
 }
 
+impl From<TicketDescription> for String {
+    fn from(description: TicketDescription) -> Self {
+        description.0
+    }
+}
+
 fn validate(description: &str) -> Result<(), TicketDescriptionError> {
     if description.is_empty() {
         Err(TicketDescriptionError::Empty)

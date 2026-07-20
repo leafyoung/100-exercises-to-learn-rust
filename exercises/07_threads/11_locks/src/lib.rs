@@ -1,6 +1,7 @@
 // TODO: Fill in the missing methods for `TicketStore`.
 //  Notice how we no longer need a separate update command: `Get` now returns a handle to the ticket
 //  which allows the caller to both modify and read the ticket.
+
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +24,10 @@ impl TicketStoreClient {
                 draft,
                 response_channel: response_sender,
             })
-            .map_err(|_| OverloadedError)?;
+            .map_err(|err| match err {
+                TrySendError => OverloadedError,
+                _ => OverloadedError,
+            })?;
         Ok(response_receiver.recv().unwrap())
     }
 

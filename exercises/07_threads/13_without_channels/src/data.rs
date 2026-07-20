@@ -21,3 +21,16 @@ pub enum Status {
     InProgress,
     Done,
 }
+
+impl TryFrom<String> for Status {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.to_uppercase().as_str() {
+            "TODO" => Ok(Status::ToDo),
+            "INPROGRESS" => Ok(Status::InProgress),
+            "DONE" => Ok(Status::Done),
+            _ => Err(format!("Invalid status: {}", value)),
+        }
+    }
+}
