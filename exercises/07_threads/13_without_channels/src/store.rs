@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use crate::data::{Status, Ticket, TicketDraft};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TicketId(u64);
+pub struct TicketId(pub u64);
 
 #[derive(Clone)]
 pub struct TicketStore {
@@ -16,7 +16,7 @@ impl TicketStore {
     pub fn new() -> Self {
         Self {
             tickets: BTreeMap::new(),
-            counter: 0,
+            counter: 1,
         }
     }
 

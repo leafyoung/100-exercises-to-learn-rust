@@ -4,4 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+axum = "0.8.9"
+axum-test = "21.0.0"
+serde_json = "1.0.151"
 tokio = { version = "1", features = ["full"] }
+ticket_fields = { path = "../../../helpers/ticket_fields" }
+without_channels = { path = "../../07_threads/13_without_channels" }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.19"
