@@ -574,7 +574,7 @@ fn watch(root: &Path, exercises: &[PathBuf]) -> Result<()> {
             WatchEvent::Key(InputEvent::List) => {
                 clear_screen();
                 list(root, exercises);
-                println!("\n{DIM}press any key to return{RESET}");
+                println!("\n{DIM}press r to re-run, h to toggle notes, n for next, or q to quit{RESET}");
                 let _ = io::stdout().flush();
             }
             WatchEvent::File(p) => {
