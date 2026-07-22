@@ -249,9 +249,9 @@ fn find_exercise<'a>(
 
 // --- running one exercise ----------------------------------------------------
 
-/// Run an exercise's tests, returning (success, merged stdout+stderr output).
-// ponytail: `sh -c '... 2>&1'` merges cargo's streams in the right order and
-// keeps `--color always` so the captured output repaints with colour.
+/// Run an exercise's tests, returning (success, captured output).
+// stdout and stderr are captured separately and concatenated (no shell);
+// `--color always` keeps the output coloured when it's repainted.
 const BUILD_TIMEOUT: Duration = Duration::from_secs(300);
 const RUN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -264,7 +264,9 @@ fn run_timed(
     timeout: Duration,
     label: &str,
 ) -> Result<(bool, Option<i32>, Vec<u8>)> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -275,9 +277,15 @@ fn run_timed(
         .spawn()
         .with_context(|| format!("failed to spawn {label}"))?;
     let mut stdout = child.stdout.take().expect("piped stdout");
-    let reader = thread::spawn(move || {
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let out_handle = thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stdout.read_to_end(&mut buf);
+        buf
+    });
+    let err_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
         buf
     });
 
@@ -303,8 +311,11 @@ fn run_timed(
         thread::sleep(Duration::from_millis(50));
     };
 
-    let output = reader.join().unwrap_or_default();
-    Ok((killed, code, output))
+    // Cargo writes build progress/errors to stderr and test results to stdout;
+    // join both and put stderr first so build context precedes test output.
+    let mut merged = err_handle.join().unwrap_or_default();
+    merged.append(&mut out_handle.join().unwrap_or_default());
+    Ok((killed, code, merged))
 }
 
 /// Compile (generous timeout) then run the tests (10s kill timeout). Splitting
@@ -315,12 +326,16 @@ fn run_exercise(root: &Path, dir: &Path) -> Result<(bool, Vec<u8>)> {
     let key = key_of(root, dir);
 
     // 1. Compile the tests.
-    let mut build = Command::new("sh");
+    let mut build = Command::new("cargo");
     build
-        .arg("-c")
-        .arg("cargo test --manifest-path \"$0\" --no-run --color always 2>&1")
-        .arg(&manifest);
-    let (bkilled, bcode, mut bout) = run_timed(build, BUILD_TIMEOUT, &format!("`cargo test` build for {key}"))?;
+        .arg("test")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--no-run")
+        .arg("--color")
+        .arg("always");
+    let (bkilled, bcode, mut bout) =
+        run_timed(build, BUILD_TIMEOUT, &format!("`cargo test` build for {key}"))?;
     if bkilled {
         bout.extend_from_slice(b"\n\ncompile timed out\n");
         return Ok((false, bout));
@@ -331,11 +346,14 @@ fn run_exercise(root: &Path, dir: &Path) -> Result<(bool, Vec<u8>)> {
     }
 
     // 2. Run the tests, bounded by RUN_TIMEOUT.
-    let mut run = Command::new("sh");
-    run.arg("-c")
-        .arg("cargo test --manifest-path \"$0\" --color always 2>&1")
-        .arg(&manifest);
-    let (rkilled, rcode, mut rout) = run_timed(run, RUN_TIMEOUT, &format!("`cargo test` run for {key}"))?;
+    let mut run = Command::new("cargo");
+    run.arg("test")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--color")
+        .arg("always");
+    let (rkilled, rcode, mut rout) =
+        run_timed(run, RUN_TIMEOUT, &format!("`cargo test` run for {key}"))?;
     let mut success = rcode == Some(0);
     if rkilled {
         success = false;
@@ -421,22 +439,14 @@ fn open_editor(path: &Path) {
 
 // --- watch events ------------------------------------------------------------
 
-#[derive(Clone, Copy)]
-enum InputEvent {
-    Run,
-    Next,
-    Hint,
-    List,
-    Quit,
-}
-
 enum WatchEvent {
-    Key(InputEvent),
+    Key(u8),
     File(PathBuf),
 }
 
-/// Blocking reader: maps single keypresses to input events. Runs on its own
-/// thread so it never blocks the main loop while `cargo test` is running.
+/// Blocking reader: forwards every keypress as a raw byte, so the watch loop
+/// can react to arbitrary keys (e.g. "press any key to return" from the list).
+/// Runs on its own thread so it never blocks while `cargo test` is running.
 fn key_reader(sender: mpsc::Sender<WatchEvent>) {
     let stdin = io::stdin();
     let mut lock = stdin.lock();
@@ -445,18 +455,8 @@ fn key_reader(sender: mpsc::Sender<WatchEvent>) {
         match lock.read(&mut buf) {
             Ok(0) => return,
             Ok(_) => {
-                let ev = match buf[0] {
-                    b'r' | b'R' | b'\r' | b'\n' => Some(InputEvent::Run),
-                    b'n' | b'N' => Some(InputEvent::Next),
-                    b'h' | b'H' => Some(InputEvent::Hint),
-                    b'l' | b'L' => Some(InputEvent::List),
-                    b'q' | b'Q' => Some(InputEvent::Quit),
-                    _ => None,
-                };
-                if let Some(e) = ev {
-                    if sender.send(WatchEvent::Key(e)).is_err() {
-                        return;
-                    }
+                if sender.send(WatchEvent::Key(buf[0])).is_err() {
+                    return;
                 }
             }
             Err(_) => return,
@@ -507,7 +507,9 @@ fn watch(root: &Path, exercises: &[PathBuf]) -> Result<()> {
         .watch(&root.join(EXERCISES_DIR), RecursiveMode::Recursive)
         .context("couldn't watch `exercises/`")?;
 
-    // Key reader thread.
+    // Key reader thread. `tx_self` lets the loop re-queue key events that
+    // arrive during a file-change coalesce (so a quick `q`/`r` isn't dropped).
+    let tx_self = tx.clone();
     thread::spawn(move || key_reader(tx));
 
     open_editor(&source_file(&exercises[cur_idx]));
@@ -526,64 +528,85 @@ fn watch(root: &Path, exercises: &[PathBuf]) -> Result<()> {
 
     while let Ok(ev) = rx.recv() {
         match ev {
-            WatchEvent::Key(InputEvent::Quit) => {
-                clear_screen();
-                println!("{DIM}bye 👋 (progress saved){RESET}");
-                break;
-            }
-            WatchEvent::Key(InputEvent::Run) => {
-                run_and_render(
-                    root,
-                    exercises,
-                    &done,
-                    cur_idx,
-                    &mut output,
-                    &mut passed,
-                    &mut show_notes,
-                )?;
-            }
-            WatchEvent::Key(InputEvent::Next) => {
-                if !passed {
-                    render(root, exercises, &done, cur_idx, passed, &output, show_notes);
-                    continue;
+            WatchEvent::Key(b) => match b {
+                b'q' | b'Q' => {
+                    clear_screen();
+                    println!("{DIM}bye 👋 (progress saved){RESET}");
+                    break;
                 }
-                done.insert(key_of(root, &exercises[cur_idx]));
-                save_done(root, &done)?;
-                match first_pending_idx(root, exercises, &done) {
-                    None => {
-                        celebrate(total);
-                        return Ok(());
+                b'r' | b'R' | b'\r' | b'\n' => {
+                    run_and_render(
+                        root,
+                        exercises,
+                        &done,
+                        cur_idx,
+                        &mut output,
+                        &mut passed,
+                        &mut show_notes,
+                    )?;
+                }
+                b'n' | b'N' => {
+                    if !passed {
+                        render(root, exercises, &done, cur_idx, passed, &output, show_notes);
+                        continue;
                     }
-                    Some(i) => cur_idx = i,
+                    done.insert(key_of(root, &exercises[cur_idx]));
+                    save_done(root, &done)?;
+                    match first_pending_idx(root, exercises, &done) {
+                        None => {
+                            celebrate(total);
+                            return Ok(());
+                        }
+                        Some(i) => cur_idx = i,
+                    }
+                    open_editor(&source_file(&exercises[cur_idx]));
+                    run_and_render(
+                        root,
+                        exercises,
+                        &done,
+                        cur_idx,
+                        &mut output,
+                        &mut passed,
+                        &mut show_notes,
+                    )?;
                 }
-                open_editor(&source_file(&exercises[cur_idx]));
-                run_and_render(
-                    root,
-                    exercises,
-                    &done,
-                    cur_idx,
-                    &mut output,
-                    &mut passed,
-                    &mut show_notes,
-                )?;
-            }
-            WatchEvent::Key(InputEvent::Hint) => {
-                show_notes = !show_notes;
-                render(root, exercises, &done, cur_idx, passed, &output, show_notes);
-            }
-            WatchEvent::Key(InputEvent::List) => {
-                clear_screen();
-                list(root, exercises);
-                println!("\n{DIM}press r to re-run, h to toggle notes, n for next, or q to quit{RESET}");
-                let _ = io::stdout().flush();
-            }
+                b'h' | b'H' => {
+                    show_notes = !show_notes;
+                    render(root, exercises, &done, cur_idx, passed, &output, show_notes);
+                }
+                b'l' | b'L' => {
+                    clear_screen();
+                    list(root, exercises);
+                    println!("\n{DIM}press any key to return{RESET}");
+                    let _ = io::stdout().flush();
+                    // Any key returns to the exercise view.
+                    while let Ok(next) = rx.recv() {
+                        if matches!(next, WatchEvent::Key(_)) {
+                            break;
+                        }
+                        // Ignore file events while the list is shown.
+                    }
+                    render(root, exercises, &done, cur_idx, passed, &output, show_notes);
+                }
+                _ => {} // other keys are ignored in the exercise view
+            },
             WatchEvent::File(p) => {
                 if !p.starts_with(&exercises[cur_idx]) {
                     continue;
                 }
-                // Coalesce a burst of editor write events into one run.
+                // Let a burst of editor write events settle, then run once.
                 thread::sleep(Duration::from_millis(60));
-                while rx.try_recv().is_ok() {}
+                // Coalesce further file events, but preserve queued key events
+                // by re-queueing them (don't drain the whole channel).
+                let mut queued_keys = Vec::new();
+                while let Ok(e) = rx.try_recv() {
+                    if let k @ WatchEvent::Key(_) = e {
+                        queued_keys.push(k);
+                    }
+                }
+                for k in queued_keys {
+                    let _ = tx_self.send(k);
+                }
                 run_and_render(
                     root,
                     exercises,

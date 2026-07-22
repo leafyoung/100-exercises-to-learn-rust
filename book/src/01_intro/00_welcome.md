@@ -104,6 +104,10 @@ It compiles and runs the tests for the current exercise, auto-advances on succes
 Press `Ctrl-C` to quit at any time — your progress is saved to `.runner-state` and resumed on the next run.\
 Run `cargo run -p runner -- help` for the full set of commands (`list`, `reset`, `check-all`).
 
+> The interactive watch mode currently needs macOS or Linux (it relies on a raw
+> terminal and process signals). On Windows, use `wr`, or the non-interactive
+> `cargo run -p runner -- run` / `-- check-all` commands.
+
 Don't move on to the next section until you've solved the exercise for the current one.
 
 > We recommend committing your solutions to Git as you progress through the course,
